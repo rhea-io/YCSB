@@ -13,11 +13,11 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "lastModified": 1781580527,
-        "narHash": "sha256-lic6Xh50pmQrw2q2TSxqn8+ZjshZXfl6x7h0RJJ+qro=",
+        "lastModified": 1781580911,
+        "narHash": "sha256-1U6DcoKGvJYu4QveaT3sa19OsBoqbcSOZpzI259GfsE=",
         "owner": "rhea-io",
         "repo": "evalsync",
-        "rev": "7805edce46ae156126992563d69fc72356055d85",
+        "rev": "880f607284ad8d584871ed50c1c913c31d1dc696",
         "type": "github"
       },
       "original": {
