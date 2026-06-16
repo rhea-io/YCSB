@@ -54,6 +54,7 @@ public class Measurements {
 
   public static void setProperties(Properties props) {
     measurementproperties = props;
+    singleton = null;
   }
 
   /**

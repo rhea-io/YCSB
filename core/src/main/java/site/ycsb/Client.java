@@ -24,6 +24,7 @@ import org.apache.htrace.core.HTraceConfiguration;
 import org.apache.htrace.core.TraceScope;
 import org.apache.htrace.core.Tracer;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -175,6 +176,12 @@ public final class Client {
         "       be specified as the \"target\" property using -p");
     System.out.println("  -load:  run the loading phase of the workload");
     System.out.println("  -t:  run the transactions phase of the workload (default)");
+    System.out.println("  -p evalsync=true: coordinate the measured phase with evalsync using\n" +
+        "       EVALSYNC_EXPERIMENT_ID and EVALSYNC_CLIENT_ID");
+    System.out.println("  -p evalsync.load_before_run=true: when running -t, run an unmeasured load\n" +
+        "       phase before evalsync READY and the measured transaction phase");
+    System.out.println("  -p evalsync.load_output_file=file: write load-before-run metrics to file\n" +
+        "       instead of the measured run output (default: ycsb_load.log)");
     System.out.println("  -db dbname: specify the name of the DB to use (default: site.ycsb.BasicDB) - \n" +
         "        can also be specified as the \"db\" property using -p");
     System.out.println("  -P propertyfile: load properties from the given file. Multiple files can");
@@ -273,10 +280,72 @@ public final class Client {
     }
   }
 
-  @SuppressWarnings("unchecked")
   public static void main(String[] args) {
     Properties props = parseArguments(args);
 
+    if (Boolean.valueOf(props.getProperty(EvalSyncCoordinator.LOAD_BEFORE_RUN_PROPERTY, "false"))) {
+      runLoadBeforeRun(props);
+      return;
+    }
+
+    int status;
+    try (EvalSyncCoordinator evalsync = EvalSyncCoordinator.fromProperties(props)) {
+      status = runBenchmark(props, evalsync);
+    } catch (RuntimeException e) {
+      System.err.println("YCSB evalsync run failed: " + e.getMessage());
+      e.printStackTrace(System.err);
+      status = -1;
+    }
+    System.exit(status);
+  }
+
+  private static void runLoadBeforeRun(Properties props) {
+    if (!Boolean.valueOf(props.getProperty(DO_TRANSACTIONS_PROPERTY, String.valueOf(true)))) {
+      System.err.println(EvalSyncCoordinator.LOAD_BEFORE_RUN_PROPERTY + " is only valid with the transaction phase.");
+      System.exit(-1);
+    }
+
+    Properties loadProps = new Properties();
+    loadProps.putAll(props);
+    loadProps.setProperty(DO_TRANSACTIONS_PROPERTY, String.valueOf(false));
+    loadProps.setProperty(EvalSyncCoordinator.ENABLE_PROPERTY, "false");
+    loadProps.setProperty(EvalSyncCoordinator.LOAD_BEFORE_RUN_PROPERTY, "false");
+    loadProps.remove(TARGET_PROPERTY);
+    loadProps.setProperty(EXPORT_FILE_PROPERTY, props.getProperty(
+        EvalSyncCoordinator.LOAD_OUTPUT_FILE_PROPERTY,
+        EvalSyncCoordinator.LOAD_OUTPUT_FILE_PROPERTY_DEFAULT));
+    createParentDirectory(loadProps.getProperty(EXPORT_FILE_PROPERTY));
+
+    int loadStatus = runBenchmark(loadProps, EvalSyncCoordinator.disabled());
+    if (loadStatus != 0) {
+      System.exit(loadStatus);
+    }
+
+    Properties runProps = new Properties();
+    runProps.putAll(props);
+    runProps.setProperty(DO_TRANSACTIONS_PROPERTY, String.valueOf(true));
+    runProps.setProperty(EvalSyncCoordinator.LOAD_BEFORE_RUN_PROPERTY, "false");
+
+    int runStatus;
+    try (EvalSyncCoordinator evalsync = EvalSyncCoordinator.fromProperties(runProps)) {
+      runStatus = runBenchmark(runProps, evalsync);
+    } catch (RuntimeException e) {
+      System.err.println("YCSB evalsync run failed: " + e.getMessage());
+      e.printStackTrace(System.err);
+      runStatus = -1;
+    }
+    System.exit(runStatus);
+  }
+
+  private static void createParentDirectory(String path) {
+    File file = new File(path);
+    File parent = file.getParentFile();
+    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+      throw new IllegalStateException("Could not create parent directory for " + path);
+    }
+  }
+
+  private static int runBenchmark(Properties props, EvalSyncCoordinator evalsync) {
     boolean status = Boolean.valueOf(props.getProperty(STATUS_PROPERTY, String.valueOf(false)));
     String label = props.getProperty(LABEL_PROPERTY, "");
 
@@ -325,9 +394,10 @@ public final class Client {
     }
 
     Thread terminator = null;
-    long st;
-    long en;
-    int opsDone;
+    long st = 0;
+    long en = 0;
+    int opsDone = 0;
+    boolean evalsyncMeasuring = false;
 
     try (final TraceScope span = tracer.newScope(CLIENT_WORKLOAD_SPAN)) {
 
@@ -335,6 +405,10 @@ public final class Client {
       for (ClientThread client : clients) {
         threads.put(new Thread(tracer.wrap(client, "ClientThread")), client);
       }
+
+      evalsync.readyAndWaitForStart();
+      evalsync.measureStart();
+      evalsyncMeasuring = true;
 
       st = System.currentTimeMillis();
 
@@ -354,11 +428,26 @@ public final class Client {
           entry.getKey().join();
           opsDone += entry.getValue().getOpsDone();
         } catch (InterruptedException ignored) {
-          // ignored
+          Thread.currentThread().interrupt();
         }
       }
 
       en = System.currentTimeMillis();
+      evalsync.measureEnd();
+      evalsync.end();
+    } catch (RuntimeException e) {
+      if (evalsyncMeasuring) {
+        try {
+          evalsync.measureEnd();
+          evalsync.end();
+        } catch (RuntimeException ignored) {
+          evalsync.abort("ycsb failed during measurement");
+        }
+      } else {
+        evalsync.abort("ycsb failed before measurement");
+      }
+      e.printStackTrace(System.err);
+      return -1;
     }
 
     try {
@@ -375,7 +464,7 @@ public final class Client {
           try {
             statusthread.join();
           } catch (InterruptedException ignored) {
-            // ignored
+            Thread.currentThread().interrupt();
           }
         }
 
@@ -384,7 +473,7 @@ public final class Client {
     } catch (WorkloadException e) {
       e.printStackTrace();
       e.printStackTrace(System.out);
-      System.exit(0);
+      return 0;
     }
 
     try {
@@ -394,10 +483,10 @@ public final class Client {
     } catch (IOException e) {
       System.err.println("Could not export measurements, error: " + e.getMessage());
       e.printStackTrace();
-      System.exit(-1);
+      return -1;
     }
 
-    System.exit(0);
+    return 0;
   }
 
   private static List<ClientThread> initDb(String dbname, Properties props, int threadcount,
