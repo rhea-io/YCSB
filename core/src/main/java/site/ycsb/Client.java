@@ -311,6 +311,8 @@ public final class Client {
     loadProps.setProperty(EvalSyncCoordinator.ENABLE_PROPERTY, "false");
     loadProps.setProperty(EvalSyncCoordinator.LOAD_BEFORE_RUN_PROPERTY, "false");
     loadProps.remove(TARGET_PROPERTY);
+    loadProps.remove(MAX_EXECUTION_TIME);
+    loadProps.remove(OPERATION_COUNT_PROPERTY);
     loadProps.setProperty(EXPORT_FILE_PROPERTY, props.getProperty(
         EvalSyncCoordinator.LOAD_OUTPUT_FILE_PROPERTY,
         EvalSyncCoordinator.LOAD_OUTPUT_FILE_PROPERTY_DEFAULT));
