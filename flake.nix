@@ -79,7 +79,7 @@
             version = ycsbVersion;
 
             src = ycsbSrc;
-            mvnHash = "sha256-pa3Qr/70KZpyIfOWrhehg2pBcdhi0rvB6h05z41sOzI=";
+            mvnHash = "sha256-i+z7xa8C+fZqt4zR4GvX7MgPBnoQud8ah/Ft273PoTk=";
             mvnParameters = "-pl site.ycsb:redis-binding -am";
             doCheck = false;
 
