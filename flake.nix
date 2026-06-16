@@ -67,6 +67,7 @@
 
         evalsyncJava = evalsync.packages.${system}.java;
         runtimePath = pkgs.lib.makeBinPath [ pkgs.jre ];
+        nativeLibraryPath = "${evalsyncJava}/lib";
         workloadrealFile = pkgs.writeText "workloadreal" workloadreal;
         workloadreal2File = pkgs.writeText "workloadreal2" workloadreal2;
 
@@ -88,11 +89,7 @@
             ];
 
             mvnFetchExtraArgs.preBuild = ''
-              mkdir -p "$out/.m2/io/rhea/evalsync-java/0.1.0"
-              cp ${evalsyncJava}/share/maven-repository/io/rhea/evalsync-java/0.1.0/evalsync-java-0.1.0.pom \
-                "$out/.m2/io/rhea/evalsync-java/0.1.0/"
-              cp ${evalsyncJava}/share/maven-repository/io/rhea/evalsync-java/0.1.0/evalsync-java-0.1.0.jar \
-                "$out/.m2/io/rhea/evalsync-java/0.1.0/"
+              cp -r ${evalsyncJava}/share/maven-repository/. "$out/.m2/"
             '';
 
             installPhase = ''
@@ -105,7 +102,9 @@
               cp ${workloadreal2File} $out/share/ycsb/workloads/workloadreal2
 
               patchShebangs $out/share/ycsb/bin
-              makeWrapper $out/share/ycsb/bin/ycsb $out/bin/ycsb --prefix PATH : ${runtimePath}
+              makeWrapper $out/share/ycsb/bin/ycsb $out/bin/ycsb \
+                --prefix PATH : ${runtimePath} \
+                --prefix LD_LIBRARY_PATH : ${nativeLibraryPath}
 
               runHook postInstall
             '' + pkgs.lib.optionalString local_dev ''
