@@ -79,7 +79,7 @@
             version = ycsbVersion;
 
             src = ycsbSrc;
-            mvnHash = "sha256-FR9xOgC/Mwm39dOWwUjeFmOUlryxN1rpsWcfY52T43A=";
+            mvnHash = "sha256-pa3Qr/70KZpyIfOWrhehg2pBcdhi0rvB6h05z41sOzI=";
             mvnParameters = "-pl site.ycsb:redis-binding -am";
             doCheck = false;
 
@@ -89,7 +89,9 @@
             ];
 
             mvnFetchExtraArgs.preBuild = ''
+              mkdir -p "$out/.m2"
               cp -r ${evalsyncJava}/share/maven-repository/. "$out/.m2/"
+              chmod -R u+w "$out/.m2"
             '';
 
             installPhase = ''
